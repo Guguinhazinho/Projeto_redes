@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notas Rápidas</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            padding: 20px;
+        }
+        h1 {
+            color: #4CAF50;
+        }
+        .container {
+            width: 60%;
+            margin: auto;
+        }
+        form {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .note {
+            background-color: #fff;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 8px;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+        }
+        .note h3 {
+            margin-top: 0;
+        }
+        .note button {
+            margin-right: 5px;
+        }
+        .note textarea[readonly] {
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Notas Rápidas</h1>
+
+        <div id="authSection">
+            <h2>Login</h2>
+            <form id="loginForm">
+                <input type="text" id="username" placeholder="Usuário" required>
+                <input type="password" id="password" placeholder="Senha" required>
+                <button type="submit">Entrar</button>
+            </form>
+
+            <h2>Registrar Novo Usuário</h2>
+            <form id="registerForm">
+                <input type="text" id="newUsername" placeholder="Usuário" required>
+                <input type="password" id="newPassword" placeholder="Senha" required>
+                <button type="submit">Registrar</button>
+            </form>
+        </div>
+
+        <div id="notasSection" style="display: none;">
+            <button onclick="logout()">Logout</button>
+            <h2>Criar Nota</h2>
+            <form id="notaForm">
+                <input type="text" id="titulo" placeholder="Título da Nota" required>
+                <textarea id="conteudo" placeholder="Conteúdo da Nota" rows="4" required></textarea>
+                <button type="submit">Criar Nota</button>
+            </form>
+
+            <h2>Suas Notas</h2>
+            <div id="notasList"></div>
+        </div>
+    </div>
+
+    <script>
+        let websocket;
+
+        function conectarWebSocket() {
+            websocket = new WebSocket("ws://127.0.0.1:8000/ws");
+
+            websocket.onopen = function(event) {
+                console.log("Conectado ao WebSocket.");
+                // Enviar mensagem de autenticação
+                websocket.send(JSON.stringify({
+                    type: "auth",
+                    data: {
+                        token: localStorage.getItem("token")
+                    }
+                }));
+            };
+
+            websocket.onmessage = function(event) {
+                const mensagem = JSON.parse(event.data);
+                console.log("Mensagem recebida:", mensagem);
+
+                if (mensagem.type === "info") {
+                    // Exibir mensagem informativa
+                    alert(mensagem.data.message);
+                }
+            };
+
+            websocket.onclose = function(event) {
+                console.log("Conexão ao WebSocket fechada.");
+            };
+        }
+
+        function enviarMensagemCreateNote() {
+            const titulo = document.getElementById("titulo").value;
+            const conteudo = document.getElementById("conteudo").value;
+
+            websocket.send(JSON.stringify({
+                type: "create_note",
+                data: {
+                    titulo: titulo,
+                    conteudo: conteudo
+                }
+            }));
+        }
+
+
+        function checkAuth() {
+            if (token) {
+                document.getElementById("authSection").style.display = "none";
+                document.getElementById("notasSection").style.display = "block";
+                carregarNotas();
+                conectarWebSocket();  // Conectar ao WebSocket após autenticação
+            } else {
+                document.getElementById("authSection").style.display = "block";
+                document.getElementById("notasSection").style.display = "none";
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem("token");
+            token = null;
+            if (websocket) {
+                websocket.close();  // Fechar a conexão WebSocket ao fazer logout
+            }
+            checkAuth();
+        }
+
+
+        let token = localStorage.getItem("token");
+
+        function checkAuth() {
+            if (token) {
+                document.getElementById("authSection").style.display = "none";
+                document.getElementById("notasSection").style.display = "block";
+                carregarNotas();
+            } else {
+                document.getElementById("authSection").style.display = "block";
+                document.getElementById("notasSection").style.display = "none";
+            }
+        }
+
+        document.getElementById("loginForm").addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+
+            const resposta = await fetch('http://127.0.0.1:8000/login/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: `username=${username}&password=${password}`
+            });
+
+            const dados = await resposta.json();
+
+            if (resposta.ok) {
+                token = dados.access_token;
+                localStorage.setItem("token", token); // Armazenando o token
+                console.log('Token armazenado:', token);  // Verificação
+                alert("Login bem-sucedido!");
+                checkAuth(); // Chama a função para redirecionar para a seção de notas
+            } else {
+                alert("Erro ao fazer login!");
+            }
+        });
+
+        document.getElementById("notaForm").addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            const titulo = document.getElementById("titulo").value;
+            const conteudo = document.getElementById("conteudo").value;
+
+            const resposta = await fetch('http://127.0.0.1:8000/nota/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ titulo, conteudo })  // Enviando dados em formato JSON
+            });
+
+            if (resposta.ok) {
+                alert('Nota criada com sucesso!');
+                carregarNotas();
+                document.getElementById('notaForm').reset();
+            } else {
+                alert('Erro ao criar nota!');
+            }
+        });
+
+
+        document.getElementById("registerForm").addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            const username = document.getElementById("newUsername").value;
+            const password = document.getElementById("newPassword").value;
+
+            const resposta = await fetch('http://127.0.0.1:8000/registro/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, senha: password })
+            });
+
+            if (resposta.ok) {
+                alert("Usuário registrado com sucesso! Agora faça login.");
+            } else {
+                alert("Erro ao registrar usuário!");
+            }
+        });
+
+        function logout() {
+            localStorage.removeItem("token");
+            token = null;
+            checkAuth();
+        }
+
+        async function criarNota() {
+            const titulo = document.getElementById("titulo").value;
+            const conteudo = document.getElementById("conteudo").value;
+
+            const resposta = await fetch('http://127.0.0.1:8000/nota/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`  // Incluindo o token se necessário
+                },
+                body: JSON.stringify({ titulo, conteudo })  // Convertendo dados para JSON
+            });
+
+            if (resposta.ok) {
+                const notaCriada = await resposta.json();  // Convertendo a resposta para JSON
+                alert("Nota criada com sucesso!");
+                console.log(notaCriada);
+            } else {
+                alert("Erro ao criar nota!");
+            }
+        }
+
+
+        async function carregarNotas() {
+            const resposta = await fetch('http://127.0.0.1:8000/notas/', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            const notas = await resposta.json();  // Convertendo a resposta para JSON
+
+            const listaNotas = document.getElementById('notasList');
+            listaNotas.innerHTML = '';
+
+            notas.forEach(nota => {
+                const divNota = document.createElement('div');
+                divNota.classList.add('note');
+                divNota.innerHTML = `
+                    <input type="text" value="${nota.titulo}" readonly />
+                    <textarea readonly>${nota.conteudo}</textarea>
+                `;
+                listaNotas.appendChild(divNota);
+            });
+        }
+
+
+        async function excluirNota(id) {
+            const resposta = await fetch(`http://127.0.0.1:8000/nota/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (resposta.ok) {
+                alert('Nota excluída com sucesso!');
+                carregarNotas(); // Recarregar a lista de notas
+            } else {
+                alert('Erro ao excluir nota!');
+            }
+        }
+
+        function habilitarEdicao(id) {
+            document.getElementById(`titulo-${id}`).removeAttribute('readonly');
+            document.getElementById(`conteudo-${id}`).removeAttribute('readonly');
+            ajustarTamanhoTextarea(document.getElementById(`conteudo-${id}`));
+            document.querySelector(`button[onclick="salvarEdicao(${id})"]`).style.display = 'inline';
+            document.querySelector(`button[onclick="habilitarEdicao(${id})"]`).style.display = 'none';
+        }
+
+        async function salvarEdicao(id) {
+            const titulo = document.getElementById(`titulo-${id}`).value;
+            const conteudo = document.getElementById(`conteudo-${id}`).value;
+
+            const resposta = await fetch(`http://127.0.0.1:8000/nota/${id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ titulo, conteudo })
+            });
+
+            if (resposta.ok) {
+                alert('Nota atualizada com sucesso!');
+                carregarNotas(); // Recarregar a lista de notas
+            } else {
+                alert('Erro ao atualizar nota!');
+            }
+        }
+
+        document.getElementById("notaForm").addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            const titulo = document.getElementById("titulo").value;
+            const conteudo = document.getElementById("conteudo").value;
+
+            const resposta = await fetch('http://127.0.0.1:8000/nota/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ titulo, conteudo })
+            });
+
+            if (resposta.ok) {
+                alert('Nota criada com sucesso!');
+                carregarNotas();
+                document.getElementById('notaForm').reset();
+            } else {
+                alert('Erro ao criar nota!');
+            }
+        });
+
+        function ajustarTamanhoTextarea(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = (textarea.scrollHeight + 2) + 'px'; // Ajuste adicional para evitar cortes
+        }
+
+        checkAuth();
+    </script>
+</body>
+</html>
